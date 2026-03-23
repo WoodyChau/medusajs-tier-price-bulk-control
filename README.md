@@ -23,6 +23,52 @@ This app lives at `apps/medusajs-tier-price-bulk-control` and uses:
 
 ![Screenshot 2](./Screenshot_2.png)
 
+## AI Prompt Templates
+
+Use these prompts with your coding AI assistant.
+
+### Prompt: Integrate Into Another Medusa Repo
+
+```text
+Integrate the Backend Price Control feature into this Medusa v2 monorepo.
+
+Requirements:
+1) Add frontend app at apps/medusajs-tier-price-bulk-control.
+2) Add backend admin APIs under src/api/admin/price-control/*.
+3) Add module src/modules/price-control-template/* and register it in medusa-config.ts.
+4) Register adminPriceControlMiddlewares in src/api/middlewares.ts.
+5) Run/prepare DB migration for price_control_template.
+6) Ensure CORS includes the frontend dev origin in STORE_CORS, ADMIN_CORS, AUTH_CORS.
+7) Verify login with sdk.auth.login("user","emailpass", ...).
+8) Verify routes:
+   - GET /admin/price-control/currencies
+   - GET /admin/price-control/variants
+   - GET/POST /admin/price-control/templates
+   - POST/DELETE /admin/price-control/templates/:id
+   - POST /admin/price-control/apply
+9) Return:
+   - changed files list
+   - run commands
+   - any manual follow-up steps.
+```
+
+### Prompt: Operate the Tool (Daily Use)
+
+```text
+You are my assistant for Backend Price Control operations.
+When I provide a goal, return exact click-by-click steps using this flow:
+1) Product List: select variants.
+2) Select Template (optional).
+3) Apply.
+4) Price Templates: create/edit/duplicate/delete template if needed.
+
+Rules:
+- Keep instructions short and numbered.
+- If I provide target prices, derive multiplier guidance from Tier 1.
+- Warn me before destructive actions (delete/replace-all apply).
+```
+
+
 ## Compatibility
 
 - Medusa backend: `@medusajs/* 2.13.4` (same as this workspace)
@@ -206,50 +252,6 @@ cp apps/medusajs-tier-price-bulk-control/medusa-backend-kit/src/modules/price-co
 pnpm --filter backend exec medusa db:migrate
 ```
 
-## AI Prompt Templates
-
-Use these prompts with your coding AI assistant.
-
-### Prompt: Integrate Into Another Medusa Repo
-
-```text
-Integrate the Backend Price Control feature into this Medusa v2 monorepo.
-
-Requirements:
-1) Add frontend app at apps/medusajs-tier-price-bulk-control.
-2) Add backend admin APIs under src/api/admin/price-control/*.
-3) Add module src/modules/price-control-template/* and register it in medusa-config.ts.
-4) Register adminPriceControlMiddlewares in src/api/middlewares.ts.
-5) Run/prepare DB migration for price_control_template.
-6) Ensure CORS includes the frontend dev origin in STORE_CORS, ADMIN_CORS, AUTH_CORS.
-7) Verify login with sdk.auth.login("user","emailpass", ...).
-8) Verify routes:
-   - GET /admin/price-control/currencies
-   - GET /admin/price-control/variants
-   - GET/POST /admin/price-control/templates
-   - POST/DELETE /admin/price-control/templates/:id
-   - POST /admin/price-control/apply
-9) Return:
-   - changed files list
-   - run commands
-   - any manual follow-up steps.
-```
-
-### Prompt: Operate the Tool (Daily Use)
-
-```text
-You are my assistant for Backend Price Control operations.
-When I provide a goal, return exact click-by-click steps using this flow:
-1) Product List: select variants.
-2) Select Template (optional).
-3) Apply.
-4) Price Templates: create/edit/duplicate/delete template if needed.
-
-Rules:
-- Keep instructions short and numbered.
-- If I provide target prices, derive multiplier guidance from Tier 1.
-- Warn me before destructive actions (delete/replace-all apply).
-```
 
 ## Open Source Notes
 
