@@ -162,7 +162,7 @@ export const buildPreview = ({
 }) => {
   return tiers.map((tier) => ({
     currency,
-    amount: Math.max(1, Math.round(base * tier.multiplier)),
+    amount: base * tier.multiplier,
     min_quantity: tier.min_quantity,
     max_quantity: tier.max_quantity,
   }))

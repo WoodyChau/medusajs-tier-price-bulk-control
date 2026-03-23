@@ -21,14 +21,14 @@ export function Dialog({
         className="absolute inset-0"
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative z-10 w-full max-w-lg">{children}</div>
+      <div className="relative z-10 w-full">{children}</div>
     </div>
   )
 }
 
 export function DialogContent({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <div className={cn("rounded-lg border border-slate-200 bg-white p-6 shadow-xl", className)}>{children}</div>
+    <div className={cn("mx-auto w-full max-w-lg rounded-lg border border-slate-200 bg-white p-6 shadow-xl", className)}>{children}</div>
   )
 }
 

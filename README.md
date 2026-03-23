@@ -2,7 +2,7 @@
 
 Medusa admin-authenticated pricing console for bulk variant tier pricing.
 
-This app lives at `apps/medusajs-tier-price-bulk-control` and uses:
+This app lives at `apps/  "name": "medusajs-tier-price-bulk-control` and uses:
 - TanStack Start + React + Tailwind
 - shadcn-style UI primitives
 - Medusa Admin auth (`user/emailpass`)
@@ -15,13 +15,18 @@ This app lives at `apps/medusajs-tier-price-bulk-control` and uses:
 - Manage reusable **Price Templates** (multiplier mode or absolute mode).
 - Duplicate/update/delete templates.
 - Show template-in-use hint in the variant list.
-- Open variant price detail modal (row click).
+- Open variant price detail modal (row click), edit per variant, and update directly.
+- Individual variant modal supports both **Absolute Mode** and **Multiplier Mode**.
+- Multiplier calculations keep decimal values (no rounding).
+- If a variant is updated individually, template-in-use hint is cleared for that variant.
 
 ## Screenshots
 
 ![Screenshot 1](./Screenshot_1.png)
 
 ![Screenshot 2](./Screenshot_2.png)
+
+![Screenshot 3](./Screenshot_3.png)
 
 ## AI Prompt Templates
 
@@ -33,7 +38,7 @@ Use these prompts with your coding AI assistant.
 Integrate the Backend Price Control feature into this Medusa v2 monorepo.
 
 Requirements:
-1) Add frontend app at apps/medusajs-tier-price-bulk-control.
+1) Add frontend app at apps/  "name": "medusajs-tier-price-bulk-control.
 2) Add backend admin APIs under src/api/admin/price-control/*.
 3) Add module src/modules/price-control-template/* and register it in medusa-config.ts.
 4) Register adminPriceControlMiddlewares in src/api/middlewares.ts.
@@ -66,6 +71,8 @@ Rules:
 - Keep instructions short and numbered.
 - If I provide target prices, derive multiplier guidance from Tier 1.
 - Warn me before destructive actions (delete/replace-all apply).
+- Include individual variant update flow when requested:
+  - click row -> choose Absolute/Multiplier mode -> edit -> Update Variant.
 ```
 
 
@@ -101,7 +108,7 @@ pnpm --filter backend seed
 Create env file for app:
 
 ```bash
-cp apps/medusajs-tier-price-bulk-control/.env.example apps/medusajs-tier-price-bulk-control/.env
+cp apps/  "name": "medusajs-tier-price-bulk-control/.env.example apps/  "name": "medusajs-tier-price-bulk-control/.env
 ```
 
 Default values:
@@ -114,7 +121,7 @@ VITE_PORT=5177
 Start the app:
 
 ```bash
-pnpm --filter medusajs-tier-price-bulk-control dev
+pnpm --filter   "name": "medusajs-tier-price-bulk-control dev
 ```
 
 Open: `http://localhost:5177`
@@ -157,6 +164,12 @@ All routes require admin auth (`authenticate("user", ["bearer", "session"])`).
 Apply mode supported:
 - `mode: "replace_all_tiers"`
 
+## Pricing Behavior
+
+- **Multiplier mode**: `tier amount = tier1 * multiplier` (no rounding).
+- **Absolute mode**: values are saved as provided (no rounding).
+- Decimal values are supported in both modes.
+
 ## CORS / Dev Origin
 
 Backend env must allow this frontend origin in:
@@ -171,9 +184,9 @@ For local default app port, include `http://localhost:5177`.
 From repo root:
 
 ```bash
-pnpm --filter medusajs-tier-price-bulk-control lint
-pnpm --filter medusajs-tier-price-bulk-control test
-pnpm --filter medusajs-tier-price-bulk-control build
+pnpm --filter   "name": "medusajs-tier-price-bulk-control lint
+pnpm --filter   "name": "medusajs-tier-price-bulk-control test
+pnpm --filter   "name": "medusajs-tier-price-bulk-control build
 
 pnpm --filter backend test:unit
 pnpm --filter backend build
@@ -185,7 +198,7 @@ Yes, with backend extension copy-in.
 
 You can reuse this in another Medusa v2 project if you bring both parts:
 
-1. Frontend app: `apps/medusajs-tier-price-bulk-control`
+1. Frontend app: `apps/  "name": "medusajs-tier-price-bulk-control`
 2. Backend extensions:
    - `src/api/admin/price-control/*`
    - `src/modules/price-control-template/*`
@@ -218,7 +231,7 @@ Before using this in another Medusa project, you must:
 Use this when moving the feature to a different Medusa v2 repo.
 
 1. Copy frontend app folder:
-   - `apps/medusajs-tier-price-bulk-control`
+   - `apps/  "name": "medusajs-tier-price-bulk-control`
 2. Copy backend API routes:
    - `apps/backend/src/api/admin/price-control/*`
 3. Copy backend module:
@@ -241,13 +254,13 @@ Use this when moving the feature to a different Medusa v2 repo.
 
 For convenience, a migration copy is included here:
 
-- `apps/medusajs-tier-price-bulk-control/medusa-backend-kit/src/modules/price-control-template/migrations/Migration20260323093000.ts`
+- `apps/  "name": "medusajs-tier-price-bulk-control/medusa-backend-kit/src/modules/price-control-template/migrations/Migration20260323093000.ts`
 
 Copy it into your backend (target Medusa project):
 
 ```bash
 mkdir -p apps/backend/src/modules/price-control-template/migrations
-cp apps/medusajs-tier-price-bulk-control/medusa-backend-kit/src/modules/price-control-template/migrations/Migration20260323093000.ts \
+cp apps/  "name": "medusajs-tier-price-bulk-control/medusa-backend-kit/src/modules/price-control-template/migrations/Migration20260323093000.ts \
   apps/backend/src/modules/price-control-template/migrations/
 pnpm --filter backend exec medusa db:migrate
 ```
@@ -264,7 +277,7 @@ Recommended before publishing:
 ## Folder Reference
 
 - Frontend app:
-  - `apps/medusajs-tier-price-bulk-control`
+  - `apps/  "name": "medusajs-tier-price-bulk-control`
 - Backend price-control APIs:
   - `apps/backend/src/api/admin/price-control`
 - Backend template module:

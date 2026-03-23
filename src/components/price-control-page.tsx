@@ -15,6 +15,7 @@ import {
 } from "@/lib/price-control-utils"
 import { toast } from "@/components/ui/toast"
 import type {
+  AbsoluteTierDefinition,
   MultiplierTierDefinition,
   PriceControlTemplate,
   PriceControlVariant,
@@ -57,6 +58,25 @@ const DEFAULT_TIERS: TierDefinition[] = [
 const DEFAULT_PAGE_LIMIT = 100
 
 type VariantCatalog = Record<string, PriceControlVariant>
+type DetailTierRowInput = {
+  min_quantity: string
+  max_quantity: string
+  amounts_by_currency: Record<string, string>
+}
+
+type DetailMultiplierRowInput = {
+  min_quantity: string
+  max_quantity: string
+  multiplier: string
+}
+
+const resolveCurrencyAmount = (map: Record<string, number>, currency: string) => {
+  const value = map[currency]
+    ?? map[currency.toLowerCase()]
+    ?? map[currency.toUpperCase()]
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0
+}
 
 export function PriceControlPage() {
   const { logout } = useAuth()
@@ -80,6 +100,7 @@ export function PriceControlPage() {
 
   const [tiers, setTiers] = useState<TierDefinition[]>(DEFAULT_TIERS)
   const [variantCatalog, setVariantCatalog] = useState<VariantCatalog>({})
+  const [detachedTemplateVariantIds, setDetachedTemplateVariantIds] = useState<Set<string>>(new Set())
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set())
   const [tier1Inputs, setTier1Inputs] = useState<Tier1InputMap>({})
 
@@ -88,6 +109,11 @@ export function PriceControlPage() {
   const [createTemplateName, setCreateTemplateName] = useState("")
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [detailVariantId, setDetailVariantId] = useState<string | null>(null)
+  const [detailEditMode, setDetailEditMode] = useState<TemplateTierMode>("absolute")
+  const [detailEditRows, setDetailEditRows] = useState<DetailTierRowInput[]>([])
+  const [detailMultiplierRows, setDetailMultiplierRows] = useState<DetailMultiplierRowInput[]>([])
+  const [detailTier1Inputs, setDetailTier1Inputs] = useState<Record<string, string>>({})
+  const [isDetailSubmitting, setIsDetailSubmitting] = useState(false)
 
   const loadCurrencies = async () => {
     try {
@@ -279,15 +305,26 @@ export function PriceControlPage() {
         const maxB = b.max_quantity ?? Number.MAX_SAFE_INTEGER
         return maxA - maxB
       })
+      const templateDefaultCurrencies = Object.entries(template.default_tier1_by_currency || {})
+        .map(([currency, value]) => [currency.toLowerCase(), Number(value)] as const)
+        .filter(([, value]) => Number.isFinite(value) && value > 0)
       const currenciesWithPrices = Object.keys(variant.tiers_by_currency || {}).map((currency) => currency.toLowerCase())
+      const currenciesToCheck = templateDefaultCurrencies.length
+        ? templateDefaultCurrencies.map(([currency]) => currency)
+        : currenciesWithPrices
+
+      if (!currenciesToCheck.length) {
+        return { score: 0, distance: Number.POSITIVE_INFINITY }
+      }
+
       let score = 0
       let tier1DistanceTotal = 0
       let tier1DistanceCount = 0
 
-      for (const currency of currenciesWithPrices) {
+      for (const currency of currenciesToCheck) {
         const rows = normalizeRows(variant, currency)
         if (!rows.length) {
-          continue
+          return { score: 0, distance: Number.POSITIVE_INFINITY }
         }
 
         const rowByQuantity = new Map(
@@ -305,7 +342,12 @@ export function PriceControlPage() {
           : 0
         const base = baseFromTier1 > 0 ? baseFromTier1 : fallbackBase
         if (!base) {
-          continue
+          return { score: 0, distance: Number.POSITIVE_INFINITY }
+        }
+
+        const templateTier1 = getCurrencyValue(template.default_tier1_by_currency, currency)
+        if (templateTier1 > 0 && !compareAmount(base, templateTier1)) {
+          return { score: 0, distance: Number.POSITIVE_INFINITY }
         }
 
         let matchedAllRows = true
@@ -314,7 +356,7 @@ export function PriceControlPage() {
           const row = rowByQuantity.get(
             getQuantityKey(templateTier.min_quantity, templateTier.max_quantity)
           )
-          const expected = Math.max(1, Math.round(base * templateTier.multiplier))
+          const expected = base * templateTier.multiplier
 
           if (
             !row
@@ -325,14 +367,15 @@ export function PriceControlPage() {
           }
         }
 
-        if (matchedAllRows) {
-          score += multiplierTiers.length
+        if (!matchedAllRows) {
+          return { score: 0, distance: Number.POSITIVE_INFINITY }
+        }
 
-          const templateTier1 = getCurrencyValue(template.default_tier1_by_currency, currency)
-          if (templateTier1 > 0) {
-            tier1DistanceTotal += Math.abs(base - templateTier1)
-            tier1DistanceCount += 1
-          }
+        score += multiplierTiers.length
+
+        if (templateTier1 > 0) {
+          tier1DistanceTotal += Math.abs(base - templateTier1)
+          tier1DistanceCount += 1
         }
       }
 
@@ -468,6 +511,434 @@ export function PriceControlPage() {
     ]))
   }, [currencies, detailVariant])
 
+  const buildInitialDetailTier1Inputs = () => {
+    return Object.fromEntries(
+      detailCurrencies.map((currency) => {
+        const tier1Amount = detailVariant
+          ? resolveCurrencyAmount(detailVariant.tier1_by_currency, currency)
+          : 0
+        return [currency, tier1Amount > 0 ? String(tier1Amount) : ""]
+      })
+    )
+  }
+
+  const buildDefaultDetailAbsoluteRows = (
+    tier1ByCurrency: Record<string, string>
+  ): DetailTierRowInput[] => {
+    return [
+      {
+        min_quantity: "1",
+        max_quantity: "",
+        amounts_by_currency: Object.fromEntries(
+          detailCurrencies.map((currency) => [currency, tier1ByCurrency[currency] || ""])
+        ),
+      },
+    ]
+  }
+
+  const toDetailMultiplierRowsFromAbsoluteRows = (
+    rows: DetailTierRowInput[],
+    tier1ByCurrency: Record<string, string>
+  ): DetailMultiplierRowInput[] => {
+    if (!rows.length) {
+      return DEFAULT_TIERS.map((tier) => ({
+        min_quantity: String(tier.min_quantity),
+        max_quantity: tier.max_quantity === null ? "" : String(tier.max_quantity),
+        multiplier: String(tier.multiplier),
+      }))
+    }
+
+    const candidateCurrencies = Array.from(
+      new Set([
+        ...detailCurrencies,
+        ...rows.flatMap((row) => Object.keys(row.amounts_by_currency || {})),
+      ])
+    )
+
+    const fallbackCurrency = candidateCurrencies.find((currency) => {
+      const base = Number(tier1ByCurrency[currency] || 0)
+      return (
+        Number.isFinite(base)
+        && base > 0
+        && rows.some((row) => Number(row.amounts_by_currency[currency]) > 0)
+      )
+    }) || candidateCurrencies[0] || ""
+
+    return rows.map((row) => {
+      const base = Number(tier1ByCurrency[fallbackCurrency] || 0)
+      const amount = Number(row.amounts_by_currency[fallbackCurrency] || 0)
+      const multiplier = base > 0 && amount > 0 ? (amount / base) : 1
+
+      return {
+        min_quantity: row.min_quantity || "1",
+        max_quantity: row.max_quantity,
+        multiplier: String(multiplier),
+      }
+    })
+  }
+
+  const toDetailAbsoluteRowsFromMultiplierRows = (
+    rows: DetailMultiplierRowInput[],
+    tier1ByCurrency: Record<string, string>
+  ): DetailTierRowInput[] => {
+    if (!rows.length) {
+      return buildDefaultDetailAbsoluteRows(tier1ByCurrency)
+    }
+
+    return rows.map((row) => ({
+      min_quantity: row.min_quantity || "1",
+      max_quantity: row.max_quantity,
+      amounts_by_currency: Object.fromEntries(
+        detailCurrencies.map((currency) => {
+          const tier1Amount = Number(tier1ByCurrency[currency] || 0)
+          const multiplier = Number(row.multiplier)
+          if (
+            Number.isFinite(tier1Amount)
+            && tier1Amount > 0
+            && Number.isFinite(multiplier)
+            && multiplier > 0
+          ) {
+            return [currency, String(tier1Amount * multiplier)]
+          }
+
+          return [currency, ""]
+        })
+      ),
+    }))
+  }
+
+  useEffect(() => {
+    if (!detailVariant) {
+      setDetailEditRows([])
+      setDetailMultiplierRows([])
+      setDetailTier1Inputs({})
+      return
+    }
+
+    const nextTier1Inputs = buildInitialDetailTier1Inputs()
+    const nextAbsoluteRows = detailRows.length
+      ? detailRows.map((row) => ({
+        min_quantity: String(row.min_quantity),
+        max_quantity: row.max_quantity === null ? "" : String(row.max_quantity),
+        amounts_by_currency: Object.fromEntries(
+          detailCurrencies.map((currency) => [
+            currency,
+            row.amounts_by_currency[currency] !== undefined
+              ? String(row.amounts_by_currency[currency])
+              : "",
+          ])
+        ),
+      }))
+      : buildDefaultDetailAbsoluteRows(nextTier1Inputs)
+
+    setDetailEditMode("absolute")
+    setDetailTier1Inputs(nextTier1Inputs)
+    setDetailEditRows(nextAbsoluteRows)
+    setDetailMultiplierRows(
+      toDetailMultiplierRowsFromAbsoluteRows(nextAbsoluteRows, nextTier1Inputs)
+    )
+  }, [detailVariant, detailRows, detailCurrencies])
+
+  const switchDetailEditMode = (nextMode: TemplateTierMode) => {
+    if (nextMode === detailEditMode) {
+      return
+    }
+
+    if (nextMode === "multiplier") {
+      setDetailMultiplierRows(
+        toDetailMultiplierRowsFromAbsoluteRows(detailEditRows, detailTier1Inputs)
+      )
+    } else {
+      setDetailEditRows(
+        toDetailAbsoluteRowsFromMultiplierRows(detailMultiplierRows, detailTier1Inputs)
+      )
+    }
+
+    setDetailEditMode(nextMode)
+  }
+
+  const setDetailTierBaseField = (
+    index: number,
+    key: "min_quantity" | "max_quantity",
+    value: string
+  ) => {
+    setDetailEditRows((prev) => {
+      const next = [...prev]
+      const row = next[index]
+      if (!row) {
+        return prev
+      }
+
+      next[index] = {
+        ...row,
+        [key]: value,
+      }
+
+      return next
+    })
+  }
+
+  const setDetailTierAmount = (index: number, currency: string, value: string) => {
+    setDetailEditRows((prev) => {
+      const next = [...prev]
+      const row = next[index]
+      if (!row) {
+        return prev
+      }
+
+      next[index] = {
+        ...row,
+        amounts_by_currency: {
+          ...row.amounts_by_currency,
+          [currency]: value,
+        },
+      }
+
+      return next
+    })
+  }
+
+  const setDetailTier1Input = (currency: string, value: string) => {
+    setDetailTier1Inputs((prev) => ({
+      ...prev,
+      [currency]: value,
+    }))
+  }
+
+  const setDetailMultiplierTierBaseField = (
+    index: number,
+    key: "min_quantity" | "max_quantity",
+    value: string
+  ) => {
+    setDetailMultiplierRows((prev) => {
+      const next = [...prev]
+      const row = next[index]
+      if (!row) {
+        return prev
+      }
+
+      next[index] = {
+        ...row,
+        [key]: value,
+      }
+
+      return next
+    })
+  }
+
+  const setDetailMultiplierTierValue = (index: number, value: string) => {
+    setDetailMultiplierRows((prev) => {
+      const next = [...prev]
+      const row = next[index]
+      if (!row) {
+        return prev
+      }
+
+      next[index] = {
+        ...row,
+        multiplier: value,
+      }
+
+      return next
+    })
+  }
+
+  const addDetailAbsoluteTierRow = () => {
+    setDetailEditRows((prev) => {
+      if (!prev.length) {
+        return buildDefaultDetailAbsoluteRows(detailTier1Inputs)
+      }
+
+      const last = prev[prev.length - 1]
+      const lastMin = Number(last.min_quantity)
+      const parsedLastMin = Number.isFinite(lastMin) && lastMin > 0 ? Math.floor(lastMin) : 1
+      const parsedLastMax = last.max_quantity === "" ? null : Number(last.max_quantity)
+      const safeLastMax =
+        parsedLastMax !== null && Number.isFinite(parsedLastMax)
+          ? Math.floor(parsedLastMax)
+          : null
+
+      const normalizedPrev = prev.map((row, index) =>
+        index === prev.length - 1 && row.max_quantity === ""
+          ? { ...row, max_quantity: String(parsedLastMin + 100) }
+          : row
+      )
+
+      const nextMin = safeLastMax === null ? parsedLastMin + 1 : safeLastMax + 1
+      const previousAmounts = normalizedPrev[normalizedPrev.length - 1]?.amounts_by_currency || {}
+
+      return [
+        ...normalizedPrev,
+        {
+          min_quantity: String(Math.max(1, nextMin)),
+          max_quantity: "",
+          amounts_by_currency: Object.fromEntries(
+            detailCurrencies.map((currency) => [
+              currency,
+              previousAmounts[currency] ?? "",
+            ])
+          ),
+        },
+      ]
+    })
+  }
+
+  const addDetailMultiplierTierRow = () => {
+    setDetailMultiplierRows((prev) => {
+      if (!prev.length) {
+        return [
+          {
+            min_quantity: "1",
+            max_quantity: "",
+            multiplier: "1",
+          },
+        ]
+      }
+
+      const last = prev[prev.length - 1]
+      const lastMin = Number(last.min_quantity)
+      const parsedLastMin = Number.isFinite(lastMin) && lastMin > 0 ? Math.floor(lastMin) : 1
+      const parsedLastMax = last.max_quantity === "" ? null : Number(last.max_quantity)
+      const safeLastMax =
+        parsedLastMax !== null && Number.isFinite(parsedLastMax)
+          ? Math.floor(parsedLastMax)
+          : null
+
+      const normalizedPrev = prev.map((row, index) =>
+        index === prev.length - 1 && row.max_quantity === ""
+          ? { ...row, max_quantity: String(parsedLastMin + 100) }
+          : row
+      )
+
+      const nextMin = safeLastMax === null ? parsedLastMin + 1 : safeLastMax + 1
+      const previousMultiplier = normalizedPrev[normalizedPrev.length - 1]?.multiplier || "1"
+
+      return [
+        ...normalizedPrev,
+        {
+          min_quantity: String(Math.max(1, nextMin)),
+          max_quantity: "",
+          multiplier: previousMultiplier,
+        },
+      ]
+    })
+  }
+
+  const addDetailTierRow = () => {
+    if (detailEditMode === "multiplier") {
+      addDetailMultiplierTierRow()
+      return
+    }
+
+    addDetailAbsoluteTierRow()
+  }
+
+  const removeDetailTierRow = (index: number) => {
+    if (detailEditMode === "multiplier") {
+      setDetailMultiplierRows((prev) => prev.filter((_, rowIndex) => rowIndex !== index))
+      return
+    }
+
+    setDetailEditRows((prev) => prev.filter((_, rowIndex) => rowIndex !== index))
+  }
+
+  const onUpdateDetailVariantPricing = async () => {
+    if (!detailVariant) {
+      return
+    }
+
+    const payload = detailEditMode === "multiplier"
+      ? (() => {
+        const multiplierTiers: MultiplierTierDefinition[] = detailMultiplierRows.map((row) => ({
+          min_quantity: Number(row.min_quantity),
+          max_quantity: row.max_quantity === "" ? null : Number(row.max_quantity),
+          multiplier: Number(row.multiplier),
+        }))
+        const errors = validateTemplateTiers(multiplierTiers)
+        if (errors.length) {
+          return { errors, payload: null }
+        }
+
+        const tier1ByCurrency = parsePositiveNumberMap(detailTier1Inputs)
+        if (!Object.keys(tier1ByCurrency).length) {
+          return {
+            errors: ["At least one currency base amount is required for multiplier mode."],
+            payload: null,
+          }
+        }
+
+        return {
+          errors: [] as string[],
+          payload: {
+            variants: [
+              {
+                variant_id: detailVariant.variant_id,
+                tier1_by_currency: tier1ByCurrency,
+              },
+            ],
+            tiers: multiplierTiers,
+            mode: "replace_all_tiers" as const,
+          },
+        }
+      })()
+      : (() => {
+        const absoluteTiers: AbsoluteTierDefinition[] = detailEditRows.map((row) => ({
+          min_quantity: Number(row.min_quantity),
+          max_quantity: row.max_quantity === "" ? null : Number(row.max_quantity),
+          amounts_by_currency: Object.fromEntries(
+            detailCurrencies.map((currency) => [currency, Number(row.amounts_by_currency[currency])])
+          ),
+        }))
+
+        const errors = validateTemplateTiers(absoluteTiers)
+        return {
+          errors,
+          payload: {
+            variants: [
+              {
+                variant_id: detailVariant.variant_id,
+                tier1_by_currency: {},
+              },
+            ],
+            tiers: absoluteTiers,
+            mode: "replace_all_tiers" as const,
+          },
+        }
+      })()
+
+    if (payload.errors.length || !payload.payload) {
+      toast.error(payload.errors[0] || "Invalid pricing data")
+      return
+    }
+
+    setIsDetailSubmitting(true)
+
+    try {
+      const response = await applyPricing(payload.payload)
+
+      await loadVariants()
+
+      const failed = response.failed.find(
+        (item) => item.variant_id === detailVariant.variant_id
+      )
+
+      if (failed) {
+        toast.error(failed.reason || "Failed to update variant pricing")
+      } else {
+        setDetachedTemplateVariantIds((prev) => {
+          const next = new Set(prev)
+          next.add(detailVariant.variant_id)
+          return next
+        })
+        toast.success("Variant pricing updated")
+      }
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to update variant pricing")
+    } finally {
+      setIsDetailSubmitting(false)
+    }
+  }
+
   const toMultiplierTemplateTiers = (
     sourceTiers: TemplateTierDefinition[]
   ): MultiplierTierDefinition[] => {
@@ -485,7 +956,7 @@ export function PriceControlPage() {
 
       const base = Number(templateDefaults[fallbackCurrency] || 0)
       const amount = Number(tier.amounts_by_currency?.[fallbackCurrency] || 0)
-      const multiplier = base > 0 && amount > 0 ? Number((amount / base).toFixed(4)) : 1
+      const multiplier = base > 0 && amount > 0 ? (amount / base) : 1
 
       return {
         min_quantity: tier.min_quantity,
@@ -507,7 +978,7 @@ export function PriceControlPage() {
         currencies.map((currency) => {
           const defaultTier1 = Number(templateDefaults[currency] || 0)
           const computed = defaultTier1 > 0
-            ? Math.max(1, Math.round(defaultTier1 * tier.multiplier))
+            ? (defaultTier1 * tier.multiplier)
             : 1
           return [currency, computed]
         })
@@ -843,6 +1314,23 @@ export function PriceControlPage() {
 
       await loadVariants()
 
+      if (selectedTemplateId) {
+        const failedIds = new Set(result.failed.map((item) => item.variant_id))
+        const successIds = payload.variants
+          .map((item) => item.variant_id)
+          .filter((variantId) => !failedIds.has(variantId))
+
+        if (successIds.length) {
+          setDetachedTemplateVariantIds((prev) => {
+            const next = new Set(prev)
+            for (const variantId of successIds) {
+              next.delete(variantId)
+            }
+            return next
+          })
+        }
+      }
+
       if (result.failed.length) {
         toast.warning(`Updated ${result.updated_count} variants. ${result.failed.length} failed.`)
       } else {
@@ -986,7 +1474,9 @@ export function PriceControlPage() {
                                 </div>
                               </TableCell>
                               <TableCell>
-                                {templateInUseByVariantId[variant.variant_id] || ""}
+                                {detachedTemplateVariantIds.has(variant.variant_id)
+                                  ? ""
+                                  : (templateInUseByVariantId[variant.variant_id] || "")}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -1117,7 +1607,7 @@ export function PriceControlPage() {
                   </Tabs>
                   <p className="text-xs text-slate-500">
                     {templateTierMode === "multiplier"
-                      ? "Based on Tier 1 per currency. Each tier amount = round(Tier 1 x multiplier)."
+                      ? "Based on Tier 1 per currency. Each tier amount = Tier 1 x multiplier."
                       : "Tier rows use fixed per-currency amounts."}
                   </p>
                 </div>
@@ -1298,7 +1788,7 @@ export function PriceControlPage() {
           }
         }}
       >
-        <DialogContent className="max-w-5xl">
+        <DialogContent className="max-w-[95vw] xl:max-w-7xl">
           <DialogHeader>
             <DialogTitle>{detailVariant?.variant_title || "Variant Price Detail"}</DialogTitle>
             <DialogDescription>
@@ -1309,46 +1799,203 @@ export function PriceControlPage() {
           {detailVariant && (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-1.5">
-                {currencies.map((currency) => (
+                {detailCurrencies.map((currency) => (
                   <span key={`detail-tier1-${currency}`} className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                    {currency.toUpperCase()}: {detailVariant.tier1_by_currency[currency] || "-"}
+                    {currency.toUpperCase()}: {detailTier1Inputs[currency] || "-"}
                   </span>
                 ))}
               </div>
 
-              {detailRows.length ? (
-                <div className="max-h-[60vh] overflow-auto rounded-md border border-slate-200">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Qty</TableHead>
-                        {detailCurrencies.map((currency) => (
-                          <TableHead key={`detail-head-${currency}`}>{currency.toUpperCase()}</TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {detailRows.map((row, index) => (
-                        <TableRow key={`detail-row-${row.min_quantity}-${row.max_quantity ?? "open"}-${index}`}>
-                          <TableCell>{row.min_quantity} - {row.max_quantity ?? "Open"}</TableCell>
-                          {detailCurrencies.map((currency) => (
-                            <TableCell key={`detail-cell-${index}-${currency}`}>
-                              {row.amounts_by_currency[currency] ?? "-"}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+              <Tabs
+                value={detailEditMode}
+                onValueChange={(value) => switchDetailEditMode(value as TemplateTierMode)}
+                className="space-y-3"
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="absolute" className="w-full">Absolute Mode</TabsTrigger>
+                  <TabsTrigger value="multiplier" className="w-full">Multiplier Mode</TabsTrigger>
+                </TabsList>
+              </Tabs>
+
+              {detailEditMode === "multiplier" && (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500">Base amount per currency. Tier amount = Base x multiplier.</p>
+                  <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                    {detailCurrencies.map((currency) => (
+                      <label key={`detail-tier1-input-${currency}`} className="space-y-1">
+                        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{currency.toUpperCase()}</span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          value={detailTier1Inputs[currency] || ""}
+                          onChange={(event) => setDetailTier1Input(currency, event.target.value)}
+                        />
+                      </label>
+                    ))}
+                  </div>
                 </div>
+              )}
+
+              {detailEditMode === "multiplier" ? (
+                detailMultiplierRows.length ? (
+                  <div className="space-y-3">
+                    <div className="max-h-[60vh] overflow-auto rounded-md border border-slate-200">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[240px]">Qty</TableHead>
+                            <TableHead>Multiplier</TableHead>
+                            <TableHead className="w-[70px]">Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {detailMultiplierRows.map((row, index) => (
+                            <TableRow key={`detail-multiplier-row-${index}`}>
+                              <TableCell>
+                                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    value={row.min_quantity}
+                                    onChange={(event) => setDetailMultiplierTierBaseField(index, "min_quantity", event.target.value)}
+                                  />
+                                  <span className="text-xs text-slate-500">to</span>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    placeholder="Open"
+                                    value={row.max_quantity}
+                                    onChange={(event) => setDetailMultiplierTierBaseField(index, "max_quantity", event.target.value)}
+                                  />
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  step="0.0001"
+                                  min={0}
+                                  value={row.multiplier}
+                                  onChange={(event) => setDetailMultiplierTierValue(index, event.target.value)}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 w-8 px-0"
+                                  aria-label="Remove tier"
+                                  onClick={() => removeDetailTierRow(index)}
+                                  disabled={detailMultiplierRows.length <= 1 || isDetailSubmitting}
+                                >
+                                  X
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full"
+                      onClick={addDetailTierRow}
+                      disabled={isDetailSubmitting}
+                    >
+                      Add Tier
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No tier rows available for this variant.</p>
+                )
               ) : (
-                <p className="text-sm text-slate-500">No stored tier prices found for this variant yet.</p>
+                detailEditRows.length ? (
+                  <div className="space-y-3">
+                    <div className="max-h-[60vh] overflow-auto rounded-md border border-slate-200">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[240px]">Qty</TableHead>
+                            {detailCurrencies.map((currency) => (
+                              <TableHead key={`detail-head-${currency}`}>{currency.toUpperCase()}</TableHead>
+                            ))}
+                            <TableHead className="w-[70px]">Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {detailEditRows.map((row, index) => (
+                            <TableRow key={`detail-edit-row-${index}`}>
+                              <TableCell>
+                                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    value={row.min_quantity}
+                                    onChange={(event) => setDetailTierBaseField(index, "min_quantity", event.target.value)}
+                                  />
+                                  <span className="text-xs text-slate-500">to</span>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    placeholder="Open"
+                                    value={row.max_quantity}
+                                    onChange={(event) => setDetailTierBaseField(index, "max_quantity", event.target.value)}
+                                  />
+                                </div>
+                              </TableCell>
+                              {detailCurrencies.map((currency) => (
+                                <TableCell key={`detail-cell-${index}-${currency}`}>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min={0}
+                                    value={row.amounts_by_currency[currency] ?? ""}
+                                    onChange={(event) => setDetailTierAmount(index, currency, event.target.value)}
+                                  />
+                                </TableCell>
+                              ))}
+                              <TableCell>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 w-8 px-0"
+                                  aria-label="Remove tier"
+                                  onClick={() => removeDetailTierRow(index)}
+                                  disabled={detailEditRows.length <= 1 || isDetailSubmitting}
+                                >
+                                  X
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full"
+                      onClick={addDetailTierRow}
+                      disabled={isDetailSubmitting}
+                    >
+                      Add Tier
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No tier rows available for this variant.</p>
+                )
               )}
             </div>
           )}
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDetailVariantId(null)}>Close</Button>
+          <DialogFooter className="justify-between">
+            <Button type="button" variant="outline" onClick={() => setDetailVariantId(null)} disabled={isDetailSubmitting}>Close</Button>
+            <Button type="button" onClick={onUpdateDetailVariantPricing} disabled={isDetailSubmitting}>
+              {isDetailSubmitting ? "Updating..." : "Update Variant"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
