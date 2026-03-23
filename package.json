@@ -1,5 +1,6 @@
 {
   "name": "medusajs-tier-price-bulk-control",
+  "description": "Medusa admin-authenticated pricing console for bulk variant tier pricing and reusable price templates.",
   "private": false,
   "author": "Woody Chau",
   "license": "MIT",
