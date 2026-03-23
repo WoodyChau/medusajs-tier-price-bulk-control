@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Instrument Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-bg: #f8fafc;
+  --color-text: #0f172a;
+}
+
+html,
+body {
+  min-height: 100%;
+  font-family: var(--font-sans);
+  background: radial-gradient(circle at 20% 20%, #e2e8f0 0%, #f8fafc 40%, #f8fafc 100%);
+  color: var(--color-text);
+}
+
+* {
+  box-sizing: border-box;
+}
