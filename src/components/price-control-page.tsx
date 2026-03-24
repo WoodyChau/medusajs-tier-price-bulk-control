@@ -1443,16 +1443,15 @@ export function PriceControlPage() {
                           onChange={(event) => toggleAllCurrentPage(event.target.checked)}
                         />
                       </TableHead>
-                      <TableHead>Product / Variant</TableHead>
-                      <TableHead>SKU</TableHead>
-                      <TableHead>Tier 1 Snapshot</TableHead>
-                      <TableHead>Price Template In Use</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Price Template</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isVariantsLoading && (
                       <TableRow>
-                        <TableCell colSpan={5} className="py-6 text-center text-slate-500">Loading variants...</TableCell>
+                        <TableCell colSpan={4} className="py-6 text-center text-slate-500">Loading variants...</TableCell>
                       </TableRow>
                     )}
 
@@ -1469,8 +1468,10 @@ export function PriceControlPage() {
                                 onChange={(event) => toggleProductGroup(variantIds, event.target.checked)}
                               />
                             </TableCell>
-                            <TableCell className="font-semibold text-slate-800">{group.productTitle}</TableCell>
-                            <TableCell className="text-xs text-slate-500">{productId}</TableCell>
+                            <TableCell>
+                              <div className="font-semibold text-slate-800">{group.productTitle}</div>
+                              <div className="text-xs text-slate-500">{productId}</div>
+                            </TableCell>
                             <TableCell className="text-xs text-slate-500">{group.variants.length} variants</TableCell>
                             <TableCell />
                           </TableRow>
@@ -1504,10 +1505,10 @@ export function PriceControlPage() {
                                   <div>
                                     <div className="font-medium text-slate-900">{variant.variant_title || "Untitled Variant"}</div>
                                     <div className="text-xs text-slate-500">{variant.variant_id}</div>
+                                    <div className="text-xs text-slate-500">SKU: {variant.sku || "-"}</div>
                                   </div>
                                 </div>
                               </TableCell>
-                              <TableCell className="text-sm text-slate-600">{variant.sku || "-"}</TableCell>
                               <TableCell>
                                 <div className="flex flex-wrap gap-1.5">
                                   {currencies.map((currency) => (
