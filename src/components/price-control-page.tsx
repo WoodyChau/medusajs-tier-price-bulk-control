@@ -213,6 +213,26 @@ export function PriceControlPage() {
     }, {})
   }, [templates])
 
+  const selectedTemplate = selectedTemplateId
+    ? (templateById[selectedTemplateId] || null)
+    : null
+
+  const selectedTemplateDefaultsText = useMemo(() => {
+    if (!selectedTemplate) {
+      return ""
+    }
+
+    return currencies
+      .map((currency) => {
+        const amount = resolveCurrencyAmount(
+          selectedTemplate.default_tier1_by_currency,
+          currency
+        )
+        return `${currency.toUpperCase()} ${amount > 0 ? amount : "-"}`
+      })
+      .join(" · ")
+  }, [currencies, selectedTemplate])
+
   const templateInUseByVariantId = useMemo(() => {
     const compareAmount = (a: number, b: number) => Math.abs(a - b) <= 0.0001
     const getCurrencyValue = (map: Record<string, number>, currency: string) => {
@@ -1378,17 +1398,18 @@ export function PriceControlPage() {
                   />
                 </div>
 
-                <div className="flex flex-nowrap items-center gap-3 overflow-x-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-sm">
-                  <div className="flex items-center gap-2 font-medium text-slate-700">
-                    <span>Selected variants</span>
+                <div className="grid grid-cols-[180px_minmax(0,1fr)_170px] gap-4 rounded-md border border-slate-200 bg-slate-100 p-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-slate-700">Selected variants</p>
                     <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-slate-900 px-2 text-xs font-semibold text-white">
                       {selectedVariantIds.size}
                     </span>
                   </div>
-                  <div className="ml-2 flex shrink-0 items-center gap-2 whitespace-nowrap">
+
+                  <div className="min-w-0 grid grid-cols-[auto_170px_minmax(0,1fr)] items-center gap-2">
                     <span className="whitespace-nowrap font-medium text-slate-700">Select Template</span>
                     <Select
-                      className="w-[220px] shrink-0"
+                      className="w-[170px] shrink-0"
                       value={selectedTemplateId}
                       onChange={(event) => onSelectTemplate(event.target.value)}
                     >
@@ -1397,8 +1418,15 @@ export function PriceControlPage() {
                         <option key={template.id} value={template.id}>{template.name}</option>
                       ))}
                     </Select>
+                    <span
+                      className="flex h-9 min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 shadow-sm"
+                      title={selectedTemplateDefaultsText || "No template selected"}
+                    >
+                      {selectedTemplateDefaultsText || "-"}
+                    </span>
                   </div>
-                  <div className="ml-auto flex items-center gap-2">
+
+                  <div className="flex shrink-0 items-end justify-end gap-2">
                     <Button size="sm" variant="secondary" onClick={() => setSelectedVariantIds(new Set())}>Clear</Button>
                     <Button size="sm" onClick={onApplyPricing} disabled={isSubmitting || !selectedVariantIds.size}>
                       {isSubmitting ? "Applying..." : "Apply"}
@@ -1460,8 +1488,24 @@ export function PriceControlPage() {
                                 />
                               </TableCell>
                               <TableCell>
-                                <div className="font-medium text-slate-900">{variant.variant_title || "Untitled Variant"}</div>
-                                <div className="text-xs text-slate-500">{variant.variant_id}</div>
+                                <div className="flex items-center gap-3">
+                                  {variant.product_thumbnail ? (
+                                    <img
+                                      src={variant.product_thumbnail}
+                                      alt={variant.product_title || variant.variant_title || "Product image"}
+                                      className="h-10 w-10 shrink-0 rounded border border-slate-200 object-cover"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[10px] font-semibold uppercase text-slate-500">
+                                      IMG
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="font-medium text-slate-900">{variant.variant_title || "Untitled Variant"}</div>
+                                    <div className="text-xs text-slate-500">{variant.variant_id}</div>
+                                  </div>
+                                </div>
                               </TableCell>
                               <TableCell className="text-sm text-slate-600">{variant.sku || "-"}</TableCell>
                               <TableCell>

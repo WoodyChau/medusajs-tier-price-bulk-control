@@ -29,6 +29,7 @@ export type PriceControlVariant = {
   sku: string | null
   product_id: string | null
   product_title: string | null
+  product_thumbnail: string | null
   tier1_by_currency: Record<string, number>
   tiers_by_currency: Record<string, TierPrice[]>
 }
